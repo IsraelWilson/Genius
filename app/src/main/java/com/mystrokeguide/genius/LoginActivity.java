@@ -6,7 +6,9 @@ import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.LoaderManager.LoaderCallbacks;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.CursorLoader;
+import android.content.Intent;
 import android.content.Loader;
 import android.database.Cursor;
 import android.net.Uri;
@@ -16,6 +18,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.ContactsContract;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.View.OnClickListener;
@@ -25,6 +28,12 @@ import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import org.apache.http.NameValuePair;
+import org.apache.http.message.BasicNameValuePair;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,16 +45,11 @@ import java.util.List;
 public class LoginActivity extends Activity implements LoaderCallbacks<Cursor> {
 
     /**
-     * A dummy authentication store containing known user names and passwords.
-     * TODO: remove after connecting to a real authentication system.
-     */
-    private static final String[] DUMMY_CREDENTIALS = new String[]{
-            "foo@example.com:hello", "bar@example.com:world"
-    };
-    /**
      * Keep track of the login task to ensure we can cancel it if requested.
      */
     private UserLoginTask mAuthTask = null;
+    SessionManager session;
+    Context ctx;
 
     // UI references.
     private AutoCompleteTextView mEmailView;
@@ -57,6 +61,11 @@ public class LoginActivity extends Activity implements LoaderCallbacks<Cursor> {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_login);
+        ctx = getApplicationContext();
+        session = new SessionManager(ctx);
+
+        // Check if the user is logged in. If they are then start the Game Activity
+        session.checkLogin();
 
         // Set up the login form.
         mEmailView = (AutoCompleteTextView) findViewById(R.id.email);
@@ -248,10 +257,13 @@ public class LoginActivity extends Activity implements LoaderCallbacks<Cursor> {
      * Represents an asynchronous login/registration task used to authenticate
      * the user.
      */
-    public class UserLoginTask extends AsyncTask<Void, Void, Boolean> {
+    public class UserLoginTask extends AsyncTask<Void, Void, String> {
+        JSONParser jsonParser = new JSONParser();
+        private static final String login = "http://youngstroke.com/Genius/login.php";
 
         private final String mEmail;
         private final String mPassword;
+        String message;
 
         UserLoginTask(String email, String password) {
             mEmail = email;
@@ -259,36 +271,53 @@ public class LoginActivity extends Activity implements LoaderCallbacks<Cursor> {
         }
 
         @Override
-        protected Boolean doInBackground(Void... params) {
-            // TODO: attempt authentication against a network service.
+        protected String doInBackground(Void... params) {
+            List<NameValuePair> args = new ArrayList<NameValuePair>();
+            args.add(new BasicNameValuePair("email", mEmail));
+            args.add(new BasicNameValuePair("password", mPassword));
+
+            // getting JSON Object
+            // Note that create product url accepts POST method
+            JSONObject json = jsonParser.makeHttpRequest(login,"POST", args);
+
+            // check log cat for response
+            Log.d("Create Response", json.toString());
 
             try {
-                // Simulate network access.
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-                return false;
-            }
+                message = json.getString("message");
+                session.createLoginSession(mPassword, mEmail);
+                return message;
 
-            for (String credential : DUMMY_CREDENTIALS) {
-                String[] pieces = credential.split(":");
-                if (pieces[0].equals(mEmail)) {
-                    // Account exists, return true if the password matches.
-                    return pieces[1].equals(mPassword);
-                }
+            } catch (JSONException e) {
+                e.printStackTrace();
+                return "JSON Exception";
             }
-
-            // TODO: register the new account here.
-            return true;
         }
 
         @Override
-        protected void onPostExecute(final Boolean success) {
+        protected void onPostExecute(final String message) {
             mAuthTask = null;
             showProgress(false);
 
-            if (success) {
+            if(message.equals("User found")){
+                Toast.makeText(ctx, "User found", Toast.LENGTH_SHORT);
+                startActivity(new Intent(ctx, GameActivity.class));
                 finish();
-            } else {
+
+            }
+            else if(message.equals("User not found")){
+                Toast.makeText(ctx, "New User created", Toast.LENGTH_SHORT);
+                startActivity(new Intent(ctx, ShortProfileActivity.class));
+                finish();
+
+            }
+            else if(message.equals("JSON Exception")){
+                // Handle JSON Exception here
+                Toast.makeText(ctx, "JSON Exception", Toast.LENGTH_SHORT);
+                session.clearPreferences();
+
+            }
+            else{
                 mPasswordView.setError(getString(R.string.error_incorrect_password));
                 mPasswordView.requestFocus();
             }
